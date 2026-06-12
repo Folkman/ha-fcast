@@ -1,0 +1,60 @@
+send_message:
+  target:
+    entity:
+      integration: fcast
+      domain: media_player
+  fields:
+    message:
+      required: true
+      example: "Dinner is ready!"
+      selector:
+        text:
+          multiline: true
+    title:
+      example: "Kitchen"
+      selector:
+        text:
+    duration:
+      default: 20
+      selector:
+        number:
+          min: 0
+          max: 3600
+          unit_of_measurement: seconds
+          mode: box
+    background:
+      default: "#1c2240"
+      selector:
+        text:
+    text_color:
+      default: "#ffffff"
+      selector:
+        text:
+    accent:
+      default: "#ff9e45"
+      selector:
+        text:
+    mascot:
+      default: false
+      selector:
+        boolean:
+
+cast_camera:
+  target:
+    entity:
+      integration: fcast
+      domain: media_player
+  fields:
+    camera_entity:
+      required: true
+      selector:
+        entity:
+          domain: camera
+    duration:
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 3600
+          unit_of_measurement: seconds
+          mode: box

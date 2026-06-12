@@ -1,0 +1,6 @@
+{
+  "services": {
+    "send_message": "mdi:message-text-fast",
+    "cast_camera": "mdi:cctv"
+  }
+}

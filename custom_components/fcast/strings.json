@@ -1,0 +1,80 @@
+{
+  "config": {
+    "flow_title": "{name}",
+    "step": {
+      "user": {
+        "title": "Add an FCast receiver",
+        "data": {
+          "host": "Host",
+          "port": "Port",
+          "name": "Name"
+        },
+        "data_description": {
+          "host": "IP address or hostname of the FCast receiver",
+          "port": "TCP port the receiver listens on (default 46899)"
+        }
+      },
+      "confirm": {
+        "title": "Add FCast receiver",
+        "description": "Add **{name}** ({host}) to Home Assistant?"
+      }
+    },
+    "error": {
+      "cannot_connect": "Could not connect to the receiver. Check the host and make sure the FCast receiver app is running."
+    },
+    "abort": {
+      "already_configured": "This receiver is already configured.",
+      "cannot_connect": "Could not connect to the receiver."
+    }
+  },
+  "services": {
+    "send_message": {
+      "name": "Send message",
+      "description": "Renders a styled announcement card and shows it on the receiver's screen.",
+      "fields": {
+        "message": {
+          "name": "Message",
+          "description": "The text to display."
+        },
+        "title": {
+          "name": "Title",
+          "description": "Small heading shown above the message."
+        },
+        "duration": {
+          "name": "Duration",
+          "description": "Seconds to show the message before clearing it (0 keeps it until stopped)."
+        },
+        "background": {
+          "name": "Background color",
+          "description": "Hex color for the card background."
+        },
+        "text_color": {
+          "name": "Text color",
+          "description": "Hex color for the message text."
+        },
+        "accent": {
+          "name": "Accent color",
+          "description": "Hex color for the title bar accent."
+        },
+        "mascot": {
+          "name": "Mascot",
+          "description": "Adds a small waving cat to the card."
+        }
+      }
+    },
+    "cast_camera": {
+      "name": "Cast camera snapshot",
+      "description": "Takes a snapshot from a camera and shows it on the receiver.",
+      "fields": {
+        "camera_entity": {
+          "name": "Camera",
+          "description": "The camera entity to snapshot."
+        },
+        "duration": {
+          "name": "Duration",
+          "description": "Seconds to show the snapshot before clearing it (0 keeps it until stopped)."
+        }
+      }
+    }
+  }
+}
