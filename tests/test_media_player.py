@@ -279,9 +279,9 @@ async def test_slideshow_play_control_is_stop_not_pause(
     """A refresh loop drops PAUSE so HA renders the play control as Stop.
 
     HA's media dialog makes the single play control a pause toggle whenever
-    PAUSE is supported, and only a stop button when it isn't. Pausing a
-    slideshow is meaningless (the next tick re-casts), so we drop PAUSE while a
-    loop is active to surface a working Stop.
+    PAUSE is supported, and only a stop button when it isn't. A refreshing cast
+    can't hold a pause (the next tick re-casts over it), so we drop PAUSE while
+    a loop is active to surface a working Stop.
     """
     await setup_entry(hass, fake_receiver)
 

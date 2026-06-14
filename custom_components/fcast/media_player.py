@@ -269,10 +269,10 @@ class FCastMediaPlayer(MediaPlayerEntity):
                 MediaPlayerEntityFeature.NEXT_TRACK
                 | MediaPlayerEntityFeature.PREVIOUS_TRACK
             )
-        # While a slideshow/map refresh loop is running, pausing is meaningless
-        # (the next tick re-casts over it). Drop PAUSE so HA's media dialog turns
-        # the play control into a Stop button — the only useful control here,
-        # since a still image has none of its own on the receiver.
+        # While a slideshow/map refresh loop is running, a pause can't hold (the
+        # next tick re-casts over it). Drop PAUSE so HA's media dialog turns the
+        # play control into a Stop button — the only useful control here, since a
+        # still image has none of its own on the receiver.
         if self._url_refresh_unsub is not None or self._map_unsub is not None:
             features &= ~MediaPlayerEntityFeature.PAUSE
         return features
