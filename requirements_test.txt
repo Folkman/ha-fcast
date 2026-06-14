@@ -1,0 +1,2 @@
+# Pulls in the matching Home Assistant, pytest, pytest-asyncio and Pillow.
+pytest-homeassistant-custom-component==0.13.316
