@@ -539,7 +539,12 @@ class FCastMediaPlayer(MediaPlayerEntity):
             ) from err
         base = get_url(self.hass, prefer_external=False, allow_cloud=False)
         url = f"{base}{path}"
-        await self._prewarm_stream(url)
+        if not await self._prewarm_stream(url):
+            raise HomeAssistantError(
+                f"The live stream for {camera_entity} did not start — its "
+                "source is likely unreachable. Check the camera's stream in "
+                "Home Assistant (Settings → System → Logs) before casting."
+            )
         self._cancel_active()
         try:
             await self._client.play(HLS_CONTAINER, url=url, title=friendly)
@@ -549,12 +554,14 @@ class FCastMediaPlayer(MediaPlayerEntity):
         self._schedule_auto_stop(duration)
         self.async_write_ha_state()
 
-    async def _prewarm_stream(self, url: str) -> None:
-        """Fetch the HLS master playlist once so the stream is producing.
+    async def _prewarm_stream(self, url: str) -> bool:
+        """Fetch the HLS master playlist so the stream is producing first.
 
         HA's master-playlist view blocks until the first segment exists, so
         priming it here means the receiver hits a ready endpoint instead of
-        timing out while a cold stream spins up.
+        timing out while a cold stream spins up. Returns True if the endpoint
+        served a playlist, False if the stream never came up (e.g. the
+        camera's source is unreachable) so the caller can fail fast.
         """
         session = async_get_clientsession(self.hass)
         try:
@@ -562,8 +569,10 @@ class FCastMediaPlayer(MediaPlayerEntity):
                 url, timeout=aiohttp.ClientTimeout(total=STREAM_WARMUP_TIMEOUT)
             ) as resp:
                 await resp.read()
+                return resp.status == 200
         except (aiohttp.ClientError, asyncio.TimeoutError) as err:
             _LOGGER.debug("HLS prewarm for %s did not complete: %s", url, err)
+            return False
 
     # -------------------------------------------------------------- live map
 

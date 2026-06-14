@@ -220,7 +220,7 @@ async def test_cast_camera_stream(hass: HomeAssistant, fake_receiver) -> None:
         return_value="http://10.0.0.5:8123",
     ), patch(
         "custom_components.fcast.media_player.FCastMediaPlayer._prewarm_stream",
-        new=AsyncMock(),
+        new=AsyncMock(return_value=True),
     ) as prewarm:
         await hass.services.async_call(
             DOMAIN, "cast_camera",
@@ -236,6 +236,36 @@ async def test_cast_camera_stream(hass: HomeAssistant, fake_receiver) -> None:
     prewarm.assert_awaited_once_with(
         "http://10.0.0.5:8123/api/hls/abc/master_playlist.m3u8"
     )
+
+
+async def test_cast_camera_stream_dead_source_fails_fast(
+    hass: HomeAssistant, fake_receiver
+) -> None:
+    await setup_entry(hass, fake_receiver)
+    hass.states.async_set(
+        "camera.front", "streaming", {"friendly_name": "Front Door"}
+    )
+    fake_camera = types.ModuleType("homeassistant.components.camera")
+    fake_camera.async_request_stream = AsyncMock(
+        return_value="/api/hls/abc/master_playlist.m3u8"
+    )
+    # Prewarm reports the stream never came up → no Play, clear error instead
+    with patch.dict(
+        sys.modules, {"homeassistant.components.camera": fake_camera}
+    ), patch(
+        "custom_components.fcast.media_player.get_url",
+        return_value="http://10.0.0.5:8123",
+    ), patch(
+        "custom_components.fcast.media_player.FCastMediaPlayer._prewarm_stream",
+        new=AsyncMock(return_value=False),
+    ), pytest.raises(HomeAssistantError):
+        await hass.services.async_call(
+            DOMAIN, "cast_camera",
+            {"entity_id": ENTITY, "camera_entity": "camera.front",
+             "stream": True},
+            blocking=True,
+        )
+    assert not plays(fake_receiver)
 
 
 async def test_cast_map_refreshes_with_fresh_tokens(
