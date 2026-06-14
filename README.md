@@ -138,11 +138,16 @@ data:
 ```
 
 A still image has no on-screen controls on the receiver, so a slideshow (and a
-live map) keeps refreshing until Home Assistant stops it. While a loop is
-running the media player's play control becomes a **⏹ Stop** button — pause is
-swapped out because a refreshing cast can't hold a pause (the next refresh
-re-casts over it). Tap Stop, call `media_player.media_stop`, let `duration` end
-it, or cast something else.
+live map) is driven from Home Assistant — the media player shows **Play / Pause /
+Stop**:
+
+- **Pause** freezes on the current photo (stops advancing, leaves it on screen)
+- **Play** resumes advancing
+- **Stop** ends the slideshow — the receiver clears the image and returns to its
+  idle screen
+
+It also ends on its own after `duration`, and `media_player.media_stop` / casting
+something else stop it too.
 
 Queue up a playlist (the receiver advances on its own; next/previous work):
 

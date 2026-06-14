@@ -211,6 +211,9 @@ class FCastMediaPlayer(MediaPlayerEntity):
 
     _attr_has_entity_name = True
     _attr_name = None
+    # Render explicit Play / Pause / Stop buttons together (rather than a single
+    # context toggle) so a slideshow can be both frozen and ended.
+    _attr_assumed_state = True
 
     def __init__(self, entry: FCastConfigEntry) -> None:
         self._client: FCastClient = entry.runtime_data
@@ -232,9 +235,12 @@ class FCastMediaPlayer(MediaPlayerEntity):
         self._map_zoom = 15
         self._map_title: str | None = None
         self._map_trail: dict[str, deque] = {}
+        self._map_interval = 0
         # refreshing-URL state (e.g. a photo slideshow)
         self._url_refresh_unsub = None
-        self._url_refresh: dict[str, str | None] | None = None
+        self._url_refresh: dict[str, Any] | None = None
+        # True while a refresh loop is frozen on its current frame (paused)
+        self._refresh_paused = False
         # playlist state
         self._playlist_count = 0
         self._playlist_index = 0
@@ -269,12 +275,6 @@ class FCastMediaPlayer(MediaPlayerEntity):
                 MediaPlayerEntityFeature.NEXT_TRACK
                 | MediaPlayerEntityFeature.PREVIOUS_TRACK
             )
-        # While a slideshow/map refresh loop is running, a pause can't hold (the
-        # next tick re-casts over it). Drop PAUSE so HA's media dialog turns the
-        # play control into a Stop button — the only useful control here, since a
-        # still image has none of its own on the receiver.
-        if self._url_refresh_unsub is not None or self._map_unsub is not None:
-            features &= ~MediaPlayerEntityFeature.PAUSE
         return features
 
     @property
@@ -283,6 +283,10 @@ class FCastMediaPlayer(MediaPlayerEntity):
 
     @property
     def state(self) -> MediaPlayerState:
+        # A frozen slideshow/map keeps its last frame on the receiver, which
+        # still reports "playing"; surface it as paused so the UI matches.
+        if self._refresh_paused:
+            return MediaPlayerState.PAUSED
         return {
             PlaybackState.IDLE: MediaPlayerState.IDLE,
             PlaybackState.PLAYING: MediaPlayerState.PLAYING,
@@ -330,9 +334,17 @@ class FCastMediaPlayer(MediaPlayerEntity):
     # ---------------------------------------------------------- controls
 
     async def async_media_play(self) -> None:
+        if self._refresh_paused:
+            await self._resume_refresh()
+            return
         await self._client.resume()
 
     async def async_media_pause(self) -> None:
+        # For a slideshow/map, pause means "freeze on the current frame": stop
+        # advancing but leave the image up. For ordinary media, pause normally.
+        if self._url_refresh_unsub is not None or self._map_unsub is not None:
+            self._freeze_refresh()
+            return
         await self._client.pause()
 
     async def async_media_stop(self) -> None:
@@ -467,7 +479,12 @@ class FCastMediaPlayer(MediaPlayerEntity):
             raise HomeAssistantError(str(err)) from err
         self._media_title = title or urlparse(url).path.rsplit("/", 1)[-1] or url
         if refresh_interval:
-            self._url_refresh = {"url": url, "container": container, "title": title}
+            self._url_refresh = {
+                "url": url,
+                "container": container,
+                "title": title,
+                "interval": refresh_interval,
+            }
             self._url_refresh_unsub = async_track_time_interval(
                 self.hass, self._url_tick, timedelta(seconds=refresh_interval)
             )
@@ -488,6 +505,40 @@ class FCastMediaPlayer(MediaPlayerEntity):
             )
         except (HomeAssistantError, FCastNotConnected) as err:
             _LOGGER.warning("FCast URL refresh failed: %s", err)
+
+    def _freeze_refresh(self) -> None:
+        """Pause a slideshow/map: stop advancing, keep the current frame up.
+
+        The refresh parameters are retained (the timer is just stood down) so
+        ``_resume_refresh`` can re-arm it; the receiver keeps showing the last
+        frame because we send it nothing.
+        """
+        if self._url_refresh_unsub is not None:
+            self._url_refresh_unsub()
+            self._url_refresh_unsub = None
+        if self._map_unsub is not None:
+            self._map_unsub()
+            self._map_unsub = None
+        self._refresh_paused = True
+        self.async_write_ha_state()
+
+    async def _resume_refresh(self) -> None:
+        """Resume a frozen slideshow/map: advance now and re-arm the timer."""
+        self._refresh_paused = False
+        if self._url_refresh is not None:
+            interval = int(self._url_refresh.get("interval") or 0)
+            await self._url_tick(dt_util.utcnow())
+            if interval:
+                self._url_refresh_unsub = async_track_time_interval(
+                    self.hass, self._url_tick, timedelta(seconds=interval)
+                )
+        elif self._map_track:
+            await self._render_and_cast_map()
+            if self._map_interval:
+                self._map_unsub = async_track_time_interval(
+                    self.hass, self._map_tick, timedelta(seconds=self._map_interval)
+                )
+        self.async_write_ha_state()
 
     async def async_cast_playlist(
         self,
@@ -653,6 +704,7 @@ class FCastMediaPlayer(MediaPlayerEntity):
         self._map_zoom = zoom
         self._map_title = title
         self._map_trail = {ent: deque(maxlen=TRAIL_LENGTH) for ent in track}
+        self._map_interval = refresh_interval
 
         await self._render_and_cast_map()
 
@@ -661,7 +713,6 @@ class FCastMediaPlayer(MediaPlayerEntity):
                 self.hass, self._map_tick, timedelta(seconds=refresh_interval)
             )
         self._schedule_auto_stop(duration)
-        # Reflect the dropped-PAUSE feature change now that the loop is armed.
         self.async_write_ha_state()
 
     async def _map_tick(self, _now: datetime) -> None:
@@ -774,11 +825,13 @@ class FCastMediaPlayer(MediaPlayerEntity):
         self._cancel_auto_stop()
         self._cancel_map()
         self._cancel_url_refresh()
+        self._refresh_paused = False
 
     async def _auto_stop(self, _now: datetime) -> None:
         self._auto_stop_unsub = None
         self._cancel_map()
         self._cancel_url_refresh()
+        self._refresh_paused = False
         try:
             await self._client.stop_media()
         except FCastNotConnected:

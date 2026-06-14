@@ -273,48 +273,64 @@ async def test_cast_url_refresh_survives_receiver_idle(
     assert len(plays(fake_receiver)) > casts_before
 
 
-async def test_slideshow_play_control_is_stop_not_pause(
+async def test_slideshow_exposes_pause_and_stop(
     hass: HomeAssistant, fake_receiver
 ) -> None:
-    """A refresh loop drops PAUSE so HA renders the play control as Stop.
-
-    HA's media dialog makes the single play control a pause toggle whenever
-    PAUSE is supported, and only a stop button when it isn't. A refreshing cast
-    can't hold a pause (the next tick re-casts over it), so we drop PAUSE while
-    a loop is active to surface a working Stop.
-    """
+    """A slideshow keeps both PAUSE and STOP, shown together via assumed_state."""
     await setup_entry(hass, fake_receiver)
-
-    # Ordinary playback keeps PAUSE (a video/audio stream is pausable).
-    await hass.services.async_call(
-        DOMAIN, "cast_url",
-        {"entity_id": ENTITY, "url": "http://example.local/clip.webm"},
-        blocking=True,
-    )
-    await fake_receiver.wait_for(Opcode.PLAY)
-    features = hass.states.get(ENTITY).attributes["supported_features"]
-    assert features & MediaPlayerEntityFeature.PAUSE
-
-    # A refreshing slideshow drops PAUSE and keeps STOP.
     await hass.services.async_call(
         DOMAIN, "cast_url",
         {"entity_id": ENTITY, "url": "http://kiosk.local/image",
          "container": "image/jpeg", "refresh_interval": 30, "duration": 300},
         blocking=True,
     )
-    await hass.async_block_till_done()
-    features = hass.states.get(ENTITY).attributes["supported_features"]
-    assert not features & MediaPlayerEntityFeature.PAUSE
-    assert features & MediaPlayerEntityFeature.STOP
+    await fake_receiver.wait_for(Opcode.PLAY)
+    attrs = hass.states.get(ENTITY).attributes
+    assert attrs["supported_features"] & MediaPlayerEntityFeature.PAUSE
+    assert attrs["supported_features"] & MediaPlayerEntityFeature.STOP
+    assert attrs.get("assumed_state") is True
 
-    # Stopping ends the loop and restores PAUSE for ordinary playback.
+
+async def test_slideshow_pause_freezes_and_resume_continues(
+    hass: HomeAssistant, fake_receiver
+) -> None:
+    """Pause freezes the current frame (no re-cast, no stop); play resumes it."""
+    await setup_entry(hass, fake_receiver)
     await hass.services.async_call(
-        "media_player", "media_stop", {"entity_id": ENTITY}, blocking=True
+        DOMAIN, "cast_url",
+        {"entity_id": ENTITY, "url": "http://kiosk.local/image",
+         "container": "image/jpeg", "refresh_interval": 2, "duration": 300},
+        blocking=True,
     )
-    await fake_receiver.wait_for(Opcode.STOP)
+    await fake_receiver.wait_for(Opcode.PLAY)
+
+    # Pause: freeze on the current frame — no Stop is sent, the image stays up.
+    await hass.services.async_call(
+        "media_player", "media_pause", {"entity_id": ENTITY}, blocking=True
+    )
     await hass.async_block_till_done()
-    features = hass.states.get(ENTITY).attributes["supported_features"]
-    assert features & MediaPlayerEntityFeature.PAUSE
+    casts_when_paused = len(plays(fake_receiver))
+    assert not [op for op, _ in fake_receiver.received if op == Opcode.STOP]
+    assert hass.states.get(ENTITY).state == "paused"
+
+    # Ticks must NOT advance the slideshow while it's frozen.
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=3))
+    await hass.async_block_till_done()
+    await asyncio.sleep(0.05)
+    assert len(plays(fake_receiver)) == casts_when_paused
+
+    # Resume: advance immediately and keep advancing.
+    await hass.services.async_call(
+        "media_player", "media_play", {"entity_id": ENTITY}, blocking=True
+    )
+    await hass.async_block_till_done()
+    for _ in range(100):
+        if len(plays(fake_receiver)) > casts_when_paused:
+            break
+        await asyncio.sleep(0.02)
+        await hass.async_block_till_done()
+    assert len(plays(fake_receiver)) > casts_when_paused
+    assert hass.states.get(ENTITY).state != "paused"
 
 
 async def test_cast_playlist_and_skip(

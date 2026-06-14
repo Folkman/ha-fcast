@@ -69,12 +69,15 @@ the token serving where bytes are generated.
   frame per request — immich-kiosk's `/image`, a radar image — thus becomes a
   self-advancing slideshow. A dedicated `cast_slideshow` service would be no more
   than this, so it isn't a separate service. (The receiver renders media, not
-  web pages, so a kiosk *page* can't be cast directly.) While a refresh loop is
-  active the entity drops `PAUSE` from `supported_features`: HA's media dialog
-  makes the play control a pause toggle whenever PAUSE is supported and only a
-  Stop button when it isn't, and a refreshing cast can't hold a pause (the next
-  tick re-casts over it) — so dropping it surfaces a working Stop. `cast_map`
-  does the same.
+  web pages, so a kiosk *page* can't be cast directly.) A refreshing cast is
+  controlled like a slideshow: **Pause** freezes on the current frame (the
+  refresh timer is stood down but its parameters kept, and nothing is sent so the
+  receiver holds the last frame), **Play** re-arms it, **Stop** ends it. A local
+  paused flag makes the entity read *paused* while frozen, since the receiver
+  still reports the still image as playing. The entity sets `assumed_state` so
+  HA's media dialog renders explicit Play/Pause/Stop buttons together (it
+  otherwise collapses to a single context toggle and would hide one of them).
+  `cast_map` behaves the same.
 - **`cast_playlist`** — a v3 `PlaylistContent` (`contentType: 0`) JSON-encoded
   into the `content` of an `application/json` Play, so the *receiver* advances
   items itself. Items may be bare URL strings or mappings
