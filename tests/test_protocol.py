@@ -73,6 +73,31 @@ async def test_stale_generation_ignored(fake_receiver) -> None:
     await client.stop()
 
 
+async def test_malformed_update_does_not_kill_client(fake_receiver) -> None:
+    """Junk fields from a buggy/hostile receiver must not tear down the link."""
+    client = await make_client(fake_receiver)
+    # Non-numeric / wrong-typed values for every parsed field.
+    fake_receiver.push(Opcode.PLAYBACK_UPDATE, {
+        "generationTime": "soon", "state": {"oops": True},
+        "time": "abc", "duration": None, "speed": [1],
+    })
+    await asyncio.sleep(0.05)
+    assert client.connected  # coerced, not crashed
+
+    # A valid update right after still lands → the read loop survived.
+    fake_receiver.push(Opcode.PLAYBACK_UPDATE, {
+        "generationTime": 5000, "state": 1, "time": 12.0, "duration": 60.0,
+    })
+    for _ in range(50):
+        if client.state.position == 12.0:
+            break
+        await asyncio.sleep(0.02)
+    assert client.connected
+    assert client.state.playback is PlaybackState.PLAYING
+    assert client.state.position == 12.0
+    await client.stop()
+
+
 async def test_reconnect_after_drop(fake_receiver) -> None:
     client = await make_client(fake_receiver)
     for writer in fake_receiver.connections:

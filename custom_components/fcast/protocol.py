@@ -62,6 +62,18 @@ class PlaybackState(IntEnum):
     PAUSED = 2
 
 
+def _as_float(value: Any, default: float) -> float:
+    """Coerce an untrusted receiver field to float, or fall back to default.
+
+    State pushed by the receiver is untrusted input; a non-numeric field must
+    not raise out of the read loop and tear the connection down.
+    """
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
 class FCastError(Exception):
     """Base error for FCast operations."""
 
@@ -186,7 +198,17 @@ class FCastClient:
                     await self._read_loop()
                 finally:
                     ready.cancel()
-            except (OSError, EOFError, asyncio.TimeoutError, FCastError) as err:
+            except (
+                OSError,
+                EOFError,
+                asyncio.TimeoutError,
+                FCastError,
+                ValueError,
+                TypeError,
+            ) as err:
+                # ValueError/TypeError are a backstop: a malformed packet should
+                # drop and reconnect, never kill the loop. (_handle coerces
+                # known fields defensively, so this rarely fires.)
                 _LOGGER.debug(
                     "Connection to %s:%s lost: %s", self.host, self.port, err
                 )
@@ -262,35 +284,35 @@ class FCastClient:
         elif opcode == Opcode.PLAYBACK_UPDATE and isinstance(body, dict):
             # The receiver may deliver updates out of order; generationTime
             # is its monotonic ordering key.
-            generation = body.get("generationTime") or 0
+            generation = int(_as_float(body.get("generationTime"), 0))
             if generation and generation < state._gen_playback:
                 return
             state._gen_playback = generation
             try:
                 state.playback = PlaybackState(body.get("state", 0))
-            except ValueError:
+            except (ValueError, TypeError):
                 state.playback = PlaybackState.IDLE
-            state.position = float(body.get("time") or 0.0)
-            state.duration = float(body.get("duration") or 0.0)
-            state.speed = float(body.get("speed") or 1.0)
+            state.position = _as_float(body.get("time"), 0.0)
+            state.duration = _as_float(body.get("duration"), 0.0)
+            state.speed = _as_float(body.get("speed"), 1.0)
             state.position_updated_at = time.monotonic()
             self._notify()
         elif opcode == Opcode.VOLUME_UPDATE and isinstance(body, dict):
-            generation = body.get("generationTime") or 0
+            generation = int(_as_float(body.get("generationTime"), 0))
             if generation and generation < state._gen_volume:
                 return
             state._gen_volume = generation
-            state.volume = float(body.get("volume", 1.0))
+            state.volume = _as_float(body.get("volume"), 1.0)
             self._notify()
         elif opcode == Opcode.VERSION and isinstance(body, dict):
-            state.protocol_version = int(body.get("version", 1))
+            state.protocol_version = int(_as_float(body.get("version"), 1))
             if state.protocol_version >= 3:
                 await self._send(
                     Opcode.INITIAL,
                     {
                         "displayName": self.sender_name,
                         "appName": "ha-fcast",
-                        "appVersion": "0.2.6",
+                        "appVersion": "0.2.7",
                     },
                 )
             self._handshake.set()
