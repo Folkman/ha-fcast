@@ -218,7 +218,10 @@ async def test_cast_camera_stream(hass: HomeAssistant, fake_receiver) -> None:
     ), patch(
         "custom_components.fcast.media_player.get_url",
         return_value="http://10.0.0.5:8123",
-    ):
+    ), patch(
+        "custom_components.fcast.media_player.FCastMediaPlayer._prewarm_stream",
+        new=AsyncMock(),
+    ) as prewarm:
         await hass.services.async_call(
             DOMAIN, "cast_camera",
             {"entity_id": ENTITY, "camera_entity": "camera.front",
@@ -229,6 +232,10 @@ async def test_cast_camera_stream(hass: HomeAssistant, fake_receiver) -> None:
     assert body["container"] == "application/vnd.apple.mpegurl"
     assert body["url"] == "http://10.0.0.5:8123/api/hls/abc/master_playlist.m3u8"
     fake_camera.async_request_stream.assert_awaited_once()
+    # The stream is primed before the receiver is told to play it
+    prewarm.assert_awaited_once_with(
+        "http://10.0.0.5:8123/api/hls/abc/master_playlist.m3u8"
+    )
 
 
 async def test_cast_map_refreshes_with_fresh_tokens(

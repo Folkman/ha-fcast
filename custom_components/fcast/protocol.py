@@ -290,7 +290,7 @@ class FCastClient:
                     {
                         "displayName": self.sender_name,
                         "appName": "ha-fcast",
-                        "appVersion": "0.2.0",
+                        "appVersion": "0.2.1",
                     },
                 )
             self._handshake.set()

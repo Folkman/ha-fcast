@@ -1,6 +1,7 @@
 """FCast receiver as a Home Assistant media player entity."""
 from __future__ import annotations
 
+import asyncio
 import logging
 import mimetypes
 from collections import deque
@@ -9,6 +10,7 @@ from functools import partial
 from typing import Any
 from urllib.parse import urlparse
 
+import aiohttp
 import voluptuous as vol
 
 from homeassistant.components import media_source
@@ -23,6 +25,7 @@ from homeassistant.components.media_player import (
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import config_validation as cv, entity_platform
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_call_later, async_track_time_interval
@@ -69,6 +72,9 @@ PARALLEL_UPDATES = 0
 
 HLS_CONTAINER = "application/vnd.apple.mpegurl"
 TRAIL_LENGTH = 12
+# How long to wait for an HLS stream's first segment before casting it, so the
+# receiver doesn't connect to a not-yet-ready endpoint and time out.
+STREAM_WARMUP_TIMEOUT = 25
 
 SUPPORTED_FEATURES = (
     MediaPlayerEntityFeature.PLAY
@@ -532,14 +538,32 @@ class FCastMediaPlayer(MediaPlayerEntity):
                 f"{camera_entity} can't be streamed: {err}"
             ) from err
         base = get_url(self.hass, prefer_external=False, allow_cloud=False)
+        url = f"{base}{path}"
+        await self._prewarm_stream(url)
         self._cancel_active()
         try:
-            await self._client.play(HLS_CONTAINER, url=f"{base}{path}", title=friendly)
+            await self._client.play(HLS_CONTAINER, url=url, title=friendly)
         except FCastNotConnected as err:
             raise HomeAssistantError(str(err)) from err
         self._media_title = friendly
         self._schedule_auto_stop(duration)
         self.async_write_ha_state()
+
+    async def _prewarm_stream(self, url: str) -> None:
+        """Fetch the HLS master playlist once so the stream is producing.
+
+        HA's master-playlist view blocks until the first segment exists, so
+        priming it here means the receiver hits a ready endpoint instead of
+        timing out while a cold stream spins up.
+        """
+        session = async_get_clientsession(self.hass)
+        try:
+            async with session.get(
+                url, timeout=aiohttp.ClientTimeout(total=STREAM_WARMUP_TIMEOUT)
+            ) as resp:
+                await resp.read()
+        except (aiohttp.ClientError, asyncio.TimeoutError) as err:
+            _LOGGER.debug("HLS prewarm for %s did not complete: %s", url, err)
 
     # -------------------------------------------------------------- live map
 
