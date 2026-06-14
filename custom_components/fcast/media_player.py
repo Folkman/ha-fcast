@@ -533,7 +533,9 @@ class FCastMediaPlayer(MediaPlayerEntity):
                     self.hass, self._url_tick, timedelta(seconds=interval)
                 )
         elif self._map_track:
-            await self._render_and_cast_map()
+            # Via _map_tick (not _render_and_cast_map) so a tracked entity that
+            # lost its location can't turn a resume into a service error.
+            await self._map_tick(dt_util.utcnow())
             if self._map_interval:
                 self._map_unsub = async_track_time_interval(
                     self.hass, self._map_tick, timedelta(seconds=self._map_interval)
