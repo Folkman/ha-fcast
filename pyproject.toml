@@ -1,3 +1,6 @@
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+# Put the repo root on sys.path so `custom_components` imports under a bare
+# `pytest` invocation (CI), not just `python -m pytest`.
+pythonpath = ["."]
