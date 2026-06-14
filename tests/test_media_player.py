@@ -273,6 +273,50 @@ async def test_cast_url_refresh_survives_receiver_idle(
     assert len(plays(fake_receiver)) > casts_before
 
 
+async def test_slideshow_play_control_is_stop_not_pause(
+    hass: HomeAssistant, fake_receiver
+) -> None:
+    """A refresh loop drops PAUSE so HA renders the play control as Stop.
+
+    HA's media dialog makes the single play control a pause toggle whenever
+    PAUSE is supported, and only a stop button when it isn't. Pausing a
+    slideshow is meaningless (the next tick re-casts), so we drop PAUSE while a
+    loop is active to surface a working Stop.
+    """
+    await setup_entry(hass, fake_receiver)
+
+    # Ordinary playback keeps PAUSE (a video/audio stream is pausable).
+    await hass.services.async_call(
+        DOMAIN, "cast_url",
+        {"entity_id": ENTITY, "url": "http://example.local/clip.webm"},
+        blocking=True,
+    )
+    await fake_receiver.wait_for(Opcode.PLAY)
+    features = hass.states.get(ENTITY).attributes["supported_features"]
+    assert features & MediaPlayerEntityFeature.PAUSE
+
+    # A refreshing slideshow drops PAUSE and keeps STOP.
+    await hass.services.async_call(
+        DOMAIN, "cast_url",
+        {"entity_id": ENTITY, "url": "http://kiosk.local/image",
+         "container": "image/jpeg", "refresh_interval": 30, "duration": 300},
+        blocking=True,
+    )
+    await hass.async_block_till_done()
+    features = hass.states.get(ENTITY).attributes["supported_features"]
+    assert not features & MediaPlayerEntityFeature.PAUSE
+    assert features & MediaPlayerEntityFeature.STOP
+
+    # Stopping ends the loop and restores PAUSE for ordinary playback.
+    await hass.services.async_call(
+        "media_player", "media_stop", {"entity_id": ENTITY}, blocking=True
+    )
+    await fake_receiver.wait_for(Opcode.STOP)
+    await hass.async_block_till_done()
+    features = hass.states.get(ENTITY).attributes["supported_features"]
+    assert features & MediaPlayerEntityFeature.PAUSE
+
+
 async def test_cast_playlist_and_skip(
     hass: HomeAssistant, fake_receiver
 ) -> None:

@@ -269,6 +269,12 @@ class FCastMediaPlayer(MediaPlayerEntity):
                 MediaPlayerEntityFeature.NEXT_TRACK
                 | MediaPlayerEntityFeature.PREVIOUS_TRACK
             )
+        # While a slideshow/map refresh loop is running, pausing is meaningless
+        # (the next tick re-casts over it). Drop PAUSE so HA's media dialog turns
+        # the play control into a Stop button — the only useful control here,
+        # since a still image has none of its own on the receiver.
+        if self._url_refresh_unsub is not None or self._map_unsub is not None:
+            features &= ~MediaPlayerEntityFeature.PAUSE
         return features
 
     @property
@@ -655,6 +661,8 @@ class FCastMediaPlayer(MediaPlayerEntity):
                 self.hass, self._map_tick, timedelta(seconds=refresh_interval)
             )
         self._schedule_auto_stop(duration)
+        # Reflect the dropped-PAUSE feature change now that the loop is armed.
+        self.async_write_ha_state()
 
     async def _map_tick(self, _now: datetime) -> None:
         try:
