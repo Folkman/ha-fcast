@@ -238,6 +238,41 @@ async def test_cast_url_refresh_stops_and_cancels(
     assert len(plays(fake_receiver)) == casts_before
 
 
+async def test_cast_url_refresh_survives_receiver_idle(
+    hass: HomeAssistant, fake_receiver
+) -> None:
+    """HA owns the display: a receiver-side idle doesn't cancel the slideshow.
+
+    A still image has no stop control on the receiver, so the refresh loop must
+    keep going across a receiver-pushed IDLE (transient frame gap, or an app
+    restart) — only media_stop / duration stop it.
+    """
+    await setup_entry(hass, fake_receiver)
+    await hass.services.async_call(
+        DOMAIN, "cast_url",
+        {"entity_id": ENTITY, "url": "http://kiosk.local/image",
+         "container": "image/jpeg", "refresh_interval": 2, "duration": 300},
+        blocking=True,
+    )
+    await fake_receiver.wait_for(Opcode.PLAY)
+    casts_before = len(plays(fake_receiver))
+
+    # Receiver reports idle on its own (not an HA-initiated stop).
+    fake_receiver.push_playback(0, 0.0)
+    await hass.async_block_till_done()
+
+    # The loop must still re-cast on the next tick.
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=3))
+    await hass.async_block_till_done()
+    for _ in range(100):
+        if len(plays(fake_receiver)) > casts_before:
+            break
+        await asyncio.sleep(0.02)
+        await hass.async_block_till_done()
+
+    assert len(plays(fake_receiver)) > casts_before
+
+
 async def test_cast_playlist_and_skip(
     hass: HomeAssistant, fake_receiver
 ) -> None:

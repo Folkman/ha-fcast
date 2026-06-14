@@ -253,6 +253,10 @@ class FCastMediaPlayer(MediaPlayerEntity):
         if state.playback is PlaybackState.IDLE:
             self._media_title = None
             self._playlist_count = 0
+            # A receiver-side idle (transient between frames, or an app restart)
+            # is deliberately NOT used to cancel an active slideshow/map refresh:
+            # a still image has no stop control on the receiver, so HA owns the
+            # display — the loop stops only via media_stop or its duration.
         self.async_write_ha_state()
 
     # ------------------------------------------------------------- state
@@ -468,6 +472,8 @@ class FCastMediaPlayer(MediaPlayerEntity):
         refresh = self._url_refresh
         if not refresh:
             return
+        # Only swap the frame: position/volume/speed are intentionally omitted so
+        # a refresh doesn't re-seek or reset volume mid-slideshow.
         try:
             await self._client.play(
                 refresh["container"],

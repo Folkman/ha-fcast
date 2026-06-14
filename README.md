@@ -9,7 +9,7 @@ Cast anything from Home Assistant to [FCast](https://fcast.org) receivers — th
 - **Cast from the media browser** — any video, audio, or image from your HA media library, straight from the entity's UI
 - **TTS announcements** — target the entity with any `tts.speak` action and your speakers/TV talk
 - **`fcast.send_message`** — renders a styled announcement card (title, message, colors, optional waving-cat mascot 🐱) and shows it on screen for a chosen duration
-- **`fcast.cast_url`** — cast any media URL the receiver can fetch (video, audio, image, or an HLS/DASH live stream), with optional start position, volume, speed, and auto-dismiss
+- **`fcast.cast_url`** — cast any media URL the receiver can fetch (video, audio, image, or an HLS/DASH live stream), with optional start position, volume, speed, and auto-dismiss; set `refresh_interval` to turn a per-request image endpoint (e.g. a photo kiosk) into a self-advancing slideshow
 - **`fcast.cast_playlist`** — hand the receiver a list of items and it advances through them itself; the entity gains next/previous-track controls
 - **`fcast.cast_camera`** — throw a camera snapshot onto the TV, or set `stream: true` for a continuous live HLS feed; perfect for doorbell automations
 - **`fcast.cast_map`** — show a live OpenStreetMap of any person/tracker/zone and refresh it on an interval (with a breadcrumb trail) — e.g. put "Dad is heading home" on the kitchen screen during the commute
@@ -136,6 +136,11 @@ data:
   refresh_interval: 30                  # new photo every 30s
   duration: 3600
 ```
+
+A still image has no on-screen controls on the receiver, so a slideshow (and a
+live map) keeps refreshing until Home Assistant stops it: it ends on its own
+after `duration`, or stop it any time with the entity's stop button /
+`media_player.media_stop`, or by casting something else.
 
 Queue up a playlist (the receiver advances on its own; next/previous work):
 
