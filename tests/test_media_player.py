@@ -100,7 +100,7 @@ async def test_send_message_serves_png(
 
     await hass.services.async_call(
         DOMAIN, "send_message",
-        {"entity_id": ENTITY, "message": "Hello, Folkman family!",
+        {"entity_id": ENTITY, "message": "Hello, everyone!",
          "title": "Test", "duration": 0, "mascot": True},
         blocking=True,
     )

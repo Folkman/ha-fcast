@@ -70,7 +70,7 @@ target:
   entity_id: media_player.living_room_tv
 data:
   media_content_type: video/mp4
-  media_content_id: http://192.168.1.5:8123/local/movies/clip.mp4
+  media_content_id: http://homeassistant.local:8123/local/movies/clip.mp4
   extra:
     title: Movie night
     position: 42
@@ -131,7 +131,7 @@ action: fcast.cast_url
 target:
   entity_id: media_player.living_room_tv
 data:
-  url: http://192.168.1.2:3333/image   # immich-kiosk; ?album= / ?person= optional
+  url: http://immich-kiosk.local:3333/image   # immich-kiosk; ?album= / ?person= optional
   container: image/jpeg
   refresh_interval: 30                  # new photo every 30s
   duration: 3600
