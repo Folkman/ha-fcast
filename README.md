@@ -93,8 +93,7 @@ Cast a YouTube video (or any of the ~1800 sites yt-dlp supports). A
 resolved first. Home Assistant's built-in [Media Extractor](https://www.home-assistant.io/integrations/media_extractor/)
 integration does that with yt-dlp and forwards the real stream straight to this
 entity. Add it once via **Settings → Devices & services → Add integration →
-Media Extractor** (it's UI-only — it no longer accepts `configuration.yaml`),
-then:
+Media Extractor**, then:
 
 ```yaml
 action: media_extractor.play_media
