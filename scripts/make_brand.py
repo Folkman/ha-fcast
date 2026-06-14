@@ -14,6 +14,7 @@ Usage:
 """
 from __future__ import annotations
 
+import re
 import urllib.request
 from pathlib import Path
 
@@ -23,13 +24,26 @@ LOGO_URL = "https://fcast.org/images/logo.svg"
 OUT_DIR = Path(__file__).parent.parent / "custom_components" / "fcast" / "brand"
 
 
+def _flatten(svg: str) -> str:
+    """Drop effects cairosvg can't render so the artwork survives.
+
+    The logo's "F" squares sit in a group behind CSS ``backdrop-filter`` blur
+    layers (``<foreignObject>``) and a 6-layer drop-shadow ``filter``; cairosvg
+    can't render those and drops the whole group. Removing the decorative blur
+    and shadow renders the squares flat (their own opacity over the gradient) —
+    visually faithful at icon scale, just without the frosted effect.
+    """
+    svg = re.sub(r"<foreignObject\b.*?</foreignObject>", "", svg, flags=re.S)
+    return svg.replace(' filter="url(#filter1_dddddd_2175_113165)"', "")
+
+
 def main() -> None:
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     req = urllib.request.Request(LOGO_URL, headers={"User-Agent": "ha-fcast-brand"})
-    svg = urllib.request.urlopen(req).read()  # noqa: S310 - trusted URL
+    svg = _flatten(urllib.request.urlopen(req).read().decode())  # noqa: S310
     for size, name in [(256, "icon.png"), (512, "icon@2x.png")]:
         cairosvg.svg2png(
-            bytestring=svg,
+            bytestring=svg.encode(),
             output_width=size,
             output_height=size,
             write_to=str(OUT_DIR / name),
