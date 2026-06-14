@@ -161,6 +161,83 @@ async def test_cast_url_explicit_container(
     assert body["container"] == "application/vnd.apple.mpegurl"
 
 
+async def test_cast_url_refreshes_with_cache_buster(
+    hass: HomeAssistant, fake_receiver
+) -> None:
+    """refresh_interval re-casts the URL with a fresh cache-buster (slideshow)."""
+    await setup_entry(hass, fake_receiver)
+    await hass.services.async_call(
+        DOMAIN, "cast_url",
+        {"entity_id": ENTITY, "url": "http://kiosk.local/image",
+         "container": "image/jpeg", "refresh_interval": 2, "duration": 30},
+        blocking=True,
+    )
+    await fake_receiver.wait_for(Opcode.PLAY)
+    first = plays(fake_receiver)[-1]
+    assert first["container"] == "image/jpeg"
+    assert first["url"].startswith("http://kiosk.local/image?")
+    assert "_fcast=" in first["url"]
+
+    # Advancing past the interval re-casts a distinct URL so the receiver
+    # re-fetches a fresh frame instead of treating it as already loaded.
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=3))
+    await hass.async_block_till_done()
+    for _ in range(100):
+        if len(plays(fake_receiver)) >= 2:
+            break
+        await asyncio.sleep(0.02)
+        await hass.async_block_till_done()
+
+    sent = plays(fake_receiver)
+    assert len(sent) >= 2
+    assert sent[0]["url"] != sent[1]["url"]
+    assert all(
+        u.startswith("http://kiosk.local/image?") for u in
+        (sent[0]["url"], sent[1]["url"])
+    )
+
+
+async def test_cast_url_no_refresh_leaves_url_untouched(
+    hass: HomeAssistant, fake_receiver
+) -> None:
+    """Without refresh_interval the URL is cast verbatim, no cache-buster."""
+    await setup_entry(hass, fake_receiver)
+    await hass.services.async_call(
+        DOMAIN, "cast_url",
+        {"entity_id": ENTITY, "url": "http://kiosk.local/image",
+         "container": "image/jpeg"},
+        blocking=True,
+    )
+    _, body = await fake_receiver.wait_for(Opcode.PLAY)
+    assert body["url"] == "http://kiosk.local/image"
+
+
+async def test_cast_url_refresh_stops_and_cancels(
+    hass: HomeAssistant, fake_receiver
+) -> None:
+    """Stopping cancels the refresh loop so no further casts fire."""
+    await setup_entry(hass, fake_receiver)
+    await hass.services.async_call(
+        DOMAIN, "cast_url",
+        {"entity_id": ENTITY, "url": "http://kiosk.local/image",
+         "container": "image/jpeg", "refresh_interval": 2, "duration": 30},
+        blocking=True,
+    )
+    await fake_receiver.wait_for(Opcode.PLAY)
+
+    await hass.services.async_call(
+        "media_player", "media_stop", {"entity_id": ENTITY}, blocking=True
+    )
+    await fake_receiver.wait_for(Opcode.STOP)
+    casts_before = len(plays(fake_receiver))
+
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=5))
+    await hass.async_block_till_done()
+    await asyncio.sleep(0.05)
+
+    assert len(plays(fake_receiver)) == casts_before
+
+
 async def test_cast_playlist_and_skip(
     hass: HomeAssistant, fake_receiver
 ) -> None:

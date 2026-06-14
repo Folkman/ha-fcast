@@ -86,7 +86,7 @@
       "fields": {
         "url": {
           "name": "URL",
-          "description": "The media URL to play (video, audio, image, HLS/DASH stream)."
+          "description": "A direct media URL (video, audio, image, HLS/DASH stream). Page links like YouTube aren't direct media — resolve them first with Home Assistant's Media Extractor integration."
         },
         "container": {
           "name": "Container",
@@ -111,6 +111,10 @@
         "duration": {
           "name": "Duration",
           "description": "Seconds before automatically stopping (0 plays to the end)."
+        },
+        "refresh_interval": {
+          "name": "Refresh interval",
+          "description": "Seconds between re-casts of the URL (0 casts once). Each refresh adds a fresh cache-buster, so an endpoint that serves a new frame per request — a photo kiosk like immich-kiosk's /image, a weather radar image — becomes a self-advancing slideshow."
         }
       }
     },

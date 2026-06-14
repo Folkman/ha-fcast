@@ -63,6 +63,13 @@ the token serving where bytes are generated.
 
 - **`cast_url`** — play any receiver-reachable URL. Container is taken as given
   or guessed from the path (`.m3u8` → HLS, `.mpd` → DASH, else `mimetypes`).
+  With `refresh_interval` it re-casts the URL on that interval, appending a
+  monotonic `_fcast=` cache-buster each time so the receiver (which ignores a
+  Play whose URL matches loaded media) re-fetches. An endpoint that serves a new
+  frame per request — immich-kiosk's `/image`, a radar image — thus becomes a
+  self-advancing slideshow. A dedicated `cast_slideshow` service would be no more
+  than this, so it isn't a separate service. (The receiver renders media, not
+  web pages, so a kiosk *page* can't be cast directly.)
 - **`cast_playlist`** — a v3 `PlaylistContent` (`contentType: 0`) JSON-encoded
   into the `content` of an `application/json` Play, so the *receiver* advances
   items itself. Items may be bare URL strings or mappings

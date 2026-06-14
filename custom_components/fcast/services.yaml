@@ -111,6 +111,14 @@ cast_url:
           max: 86400
           unit_of_measurement: seconds
           mode: box
+    refresh_interval:
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 3600
+          unit_of_measurement: seconds
+          mode: box
 
 cast_playlist:
   target:

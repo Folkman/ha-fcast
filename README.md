@@ -88,6 +88,24 @@ data:
   title: Front gate
 ```
 
+Cast a YouTube video (or any of the ~1800 sites yt-dlp supports). A
+`youtube.com/watch?…` link is an HTML page, not a media stream, so it has to be
+resolved first. Home Assistant's built-in [Media Extractor](https://www.home-assistant.io/integrations/media_extractor/)
+integration does that with yt-dlp and forwards the real stream straight to this
+entity — add `media_extractor:` to `configuration.yaml`, restart, then:
+
+```yaml
+action: media_extractor.play_media
+target:
+  entity_id: media_player.living_room_tv
+data:
+  media_content_type: video
+  media_content_id: https://www.youtube.com/watch?v=dQw4w9WgXcQ
+```
+
+Resolved stream URLs are signed and expire after a few hours, so do this at cast
+time rather than baking the link into an automation.
+
 Live camera feed (HLS) on the TV:
 
 ```yaml
@@ -98,6 +116,24 @@ data:
   camera_entity: camera.front_door
   stream: true
   duration: 120
+```
+
+Photo slideshow from any endpoint that serves a fresh image per request. The
+FCast receiver is a media player, not a browser, so a kiosk *web page* won't
+render — but [immich-kiosk](https://immichkiosk.app/)'s `/image` endpoint returns
+a single random photo, and `refresh_interval` re-casts it (with a fresh
+cache-buster) to make it self-advance. The same trick works for a weather-radar
+or traffic-cam image URL:
+
+```yaml
+action: fcast.cast_url
+target:
+  entity_id: media_player.living_room_tv
+data:
+  url: http://192.168.1.2:3333/image   # immich-kiosk; ?album= / ?person= optional
+  container: image/jpeg
+  refresh_interval: 30                  # new photo every 30s
+  duration: 3600
 ```
 
 Queue up a playlist (the receiver advances on its own; next/previous work):
@@ -180,13 +216,14 @@ Quirk handled for you: receivers ignore a `Play` for the URL they already have l
 
 | Field | Default | Description |
 |---|---|---|
-| `url` | *(required)* | Media URL the receiver fetches directly |
+| `url` | *(required)* | Direct media URL the receiver fetches. Page links (YouTube, etc.) must be resolved first — see the [Media Extractor](#examples) example above |
 | `container` | *(guessed)* | MIME type; inferred from the URL when omitted |
 | `title` | – | Title shown on the receiver |
 | `position` | – | Seconds to start playback from |
 | `volume` | – | Playback volume, `0`–`1` |
 | `speed` | – | Playback speed multiplier |
 | `duration` | `0` | Seconds before auto-stop (`0` = play to the end) |
+| `refresh_interval` | `0` | Seconds between re-casts with a fresh cache-buster (`0` = cast once). Turns a per-request image endpoint into a slideshow — see the immich-kiosk example above |
 
 ### `fcast.cast_playlist`
 

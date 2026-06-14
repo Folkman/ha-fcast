@@ -2,13 +2,14 @@
 from __future__ import annotations
 
 import asyncio
+import itertools
 import logging
 import mimetypes
 from collections import deque
 from datetime import datetime, timedelta
 from functools import partial
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 import aiohttp
 import voluptuous as vol
@@ -98,6 +99,25 @@ TYPE_CONTAINERS = {
     MediaType.IMAGE: "image/png",
 }
 
+
+_cache_bust_seq = itertools.count(1)
+
+
+def _cache_busted(url: str) -> str:
+    """Append a unique query param so the receiver re-fetches the URL.
+
+    Receivers (and HTTP caches) treat an unchanged URL as already loaded, so a
+    refreshing cast needs each request to look new. Endpoints that serve a
+    different frame per request (immich-kiosk's ``/image``, weather radar, etc.)
+    then hand back fresh content on every tick. A monotonic counter keeps each
+    URL distinct regardless of how close together the casts land.
+    """
+    parts = urlparse(url)
+    query = parse_qsl(parts.query, keep_blank_values=True)
+    query.append(("_fcast", str(next(_cache_bust_seq))))
+    return urlunparse(parts._replace(query=urlencode(query)))
+
+
 SEND_MESSAGE_SCHEMA = {
     vol.Required(ATTR_MESSAGE): cv.string,
     vol.Optional(ATTR_TITLE): cv.string,
@@ -127,6 +147,9 @@ CAST_URL_SCHEMA = {
     vol.Optional(ATTR_SPEED): vol.All(vol.Coerce(float), vol.Range(min=0.1, max=4)),
     vol.Optional(ATTR_DURATION, default=0): vol.All(
         vol.Coerce(int), vol.Range(min=0, max=86400)
+    ),
+    vol.Optional(ATTR_REFRESH_INTERVAL, default=0): vol.All(
+        vol.Coerce(int), vol.Range(min=0, max=3600)
     ),
 }
 
@@ -209,6 +232,9 @@ class FCastMediaPlayer(MediaPlayerEntity):
         self._map_zoom = 15
         self._map_title: str | None = None
         self._map_trail: dict[str, deque] = {}
+        # refreshing-URL state (e.g. a photo slideshow)
+        self._url_refresh_unsub = None
+        self._url_refresh: dict[str, str | None] | None = None
         # playlist state
         self._playlist_count = 0
         self._playlist_index = 0
@@ -407,14 +433,21 @@ class FCastMediaPlayer(MediaPlayerEntity):
         volume: float | None = None,
         speed: float | None = None,
         duration: int = 0,
+        refresh_interval: int = 0,
     ) -> None:
-        """Cast an arbitrary URL the receiver can fetch directly."""
+        """Cast an arbitrary URL the receiver can fetch directly.
+
+        With ``refresh_interval`` set, the URL is re-cast on that interval with a
+        fresh cache-buster — turning an endpoint that serves a new frame per
+        request (a photo kiosk, a radar image) into a self-advancing slideshow.
+        """
         container = container or self._resolve_container(None, url)
         self._cancel_active()
+        play_url = _cache_busted(url) if refresh_interval else url
         try:
             await self._client.play(
                 container,
-                url=url,
+                url=play_url,
                 position=position,
                 volume=volume,
                 speed=speed,
@@ -423,8 +456,26 @@ class FCastMediaPlayer(MediaPlayerEntity):
         except FCastNotConnected as err:
             raise HomeAssistantError(str(err)) from err
         self._media_title = title or urlparse(url).path.rsplit("/", 1)[-1] or url
+        if refresh_interval:
+            self._url_refresh = {"url": url, "container": container, "title": title}
+            self._url_refresh_unsub = async_track_time_interval(
+                self.hass, self._url_tick, timedelta(seconds=refresh_interval)
+            )
         self._schedule_auto_stop(duration)
         self.async_write_ha_state()
+
+    async def _url_tick(self, _now: datetime) -> None:
+        refresh = self._url_refresh
+        if not refresh:
+            return
+        try:
+            await self._client.play(
+                refresh["container"],
+                url=_cache_busted(refresh["url"]),
+                title=refresh["title"],
+            )
+        except (HomeAssistantError, FCastNotConnected) as err:
+            _LOGGER.warning("FCast URL refresh failed: %s", err)
 
     async def async_cast_playlist(
         self,
@@ -698,14 +749,22 @@ class FCastMediaPlayer(MediaPlayerEntity):
             self._map_unsub = None
         self._map_track = []
 
+    def _cancel_url_refresh(self) -> None:
+        if self._url_refresh_unsub is not None:
+            self._url_refresh_unsub()
+            self._url_refresh_unsub = None
+        self._url_refresh = None
+
     def _cancel_active(self) -> None:
-        """Stop any auto-stop timer and any running live-map refresh."""
+        """Stop the auto-stop timer and any running refresh loop (map/URL)."""
         self._cancel_auto_stop()
         self._cancel_map()
+        self._cancel_url_refresh()
 
     async def _auto_stop(self, _now: datetime) -> None:
         self._auto_stop_unsub = None
         self._cancel_map()
+        self._cancel_url_refresh()
         try:
             await self._client.stop_media()
         except FCastNotConnected:
