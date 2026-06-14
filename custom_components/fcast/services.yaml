@@ -163,6 +163,10 @@ cast_map:
       required: true
       selector:
         entity:
+          domain:
+            - person
+            - device_tracker
+            - zone
           multiple: true
     zoom:
       default: 15
