@@ -1,8 +1,10 @@
 """FCast receiver as a Home Assistant media player entity."""
 from __future__ import annotations
 
+import logging
 import mimetypes
-from datetime import datetime
+from collections import deque
+from datetime import datetime, timedelta
 from functools import partial
 from typing import Any
 from urllib.parse import urlparse
@@ -23,7 +25,8 @@ from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import config_validation as cv, entity_platform
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.event import async_call_later
+from homeassistant.helpers.event import async_call_later, async_track_time_interval
+from homeassistant.helpers.network import get_url
 from homeassistant.util import dt as dt_util
 
 from . import FCastConfigEntry
@@ -31,21 +34,41 @@ from .const import (
     ATTR_ACCENT,
     ATTR_BACKGROUND,
     ATTR_CAMERA_ENTITY,
+    ATTR_CONTAINER,
     ATTR_DURATION,
+    ATTR_ITEMS,
     ATTR_MASCOT,
     ATTR_MESSAGE,
+    ATTR_POSITION,
+    ATTR_REFRESH_INTERVAL,
+    ATTR_SPEED,
+    ATTR_START_INDEX,
+    ATTR_STREAM,
     ATTR_TEXT_COLOR,
     ATTR_TITLE,
+    ATTR_TRACK,
+    ATTR_URL,
+    ATTR_VOLUME,
+    ATTR_ZOOM,
     DATA_STORE,
     DOMAIN,
     SERVICE_CAST_CAMERA,
+    SERVICE_CAST_MAP,
+    SERVICE_CAST_PLAYLIST,
+    SERVICE_CAST_URL,
     SERVICE_SEND_MESSAGE,
 )
+from .map_cast import render_location_map
 from .message_card import render_card
 from .protocol import FCastClient, FCastNotConnected, PlaybackState
 from .serve import build_serve_url
 
+_LOGGER = logging.getLogger(__name__)
+
 PARALLEL_UPDATES = 0
+
+HLS_CONTAINER = "application/vnd.apple.mpegurl"
+TRAIL_LENGTH = 12
 
 SUPPORTED_FEATURES = (
     MediaPlayerEntityFeature.PLAY
@@ -83,9 +106,48 @@ SEND_MESSAGE_SCHEMA = {
 
 CAST_CAMERA_SCHEMA = {
     vol.Required(ATTR_CAMERA_ENTITY): cv.entity_id,
+    vol.Optional(ATTR_STREAM, default=False): cv.boolean,
     vol.Optional(ATTR_DURATION, default=0): vol.All(
         vol.Coerce(int), vol.Range(min=0, max=86400)
     ),
+}
+
+CAST_URL_SCHEMA = {
+    vol.Required(ATTR_URL): cv.string,
+    vol.Optional(ATTR_CONTAINER): cv.string,
+    vol.Optional(ATTR_TITLE): cv.string,
+    vol.Optional(ATTR_POSITION): vol.All(vol.Coerce(float), vol.Range(min=0)),
+    vol.Optional(ATTR_VOLUME): vol.All(vol.Coerce(float), vol.Range(min=0, max=1)),
+    vol.Optional(ATTR_SPEED): vol.All(vol.Coerce(float), vol.Range(min=0.1, max=4)),
+    vol.Optional(ATTR_DURATION, default=0): vol.All(
+        vol.Coerce(int), vol.Range(min=0, max=86400)
+    ),
+}
+
+CAST_PLAYLIST_SCHEMA = {
+    vol.Required(ATTR_ITEMS): vol.All(cv.ensure_list, [vol.Any(cv.string, dict)]),
+    vol.Optional(ATTR_START_INDEX, default=0): vol.All(
+        vol.Coerce(int), vol.Range(min=0)
+    ),
+    vol.Optional(ATTR_TITLE): cv.string,
+    vol.Optional(ATTR_VOLUME): vol.All(vol.Coerce(float), vol.Range(min=0, max=1)),
+    vol.Optional(ATTR_DURATION, default=0): vol.All(
+        vol.Coerce(int), vol.Range(min=0, max=86400)
+    ),
+}
+
+CAST_MAP_SCHEMA = {
+    vol.Required(ATTR_TRACK): vol.All(cv.ensure_list, [cv.entity_id]),
+    vol.Optional(ATTR_ZOOM, default=15): vol.All(
+        vol.Coerce(int), vol.Range(min=1, max=19)
+    ),
+    vol.Optional(ATTR_REFRESH_INTERVAL, default=15): vol.All(
+        vol.Coerce(int), vol.Range(min=0, max=3600)
+    ),
+    vol.Optional(ATTR_DURATION, default=300): vol.All(
+        vol.Coerce(int), vol.Range(min=0, max=86400)
+    ),
+    vol.Optional(ATTR_TITLE): cv.string,
 }
 
 
@@ -104,6 +166,15 @@ async def async_setup_entry(
     platform.async_register_entity_service(
         SERVICE_CAST_CAMERA, CAST_CAMERA_SCHEMA, "async_cast_camera"
     )
+    platform.async_register_entity_service(
+        SERVICE_CAST_URL, CAST_URL_SCHEMA, "async_cast_url"
+    )
+    platform.async_register_entity_service(
+        SERVICE_CAST_PLAYLIST, CAST_PLAYLIST_SCHEMA, "async_cast_playlist"
+    )
+    platform.async_register_entity_service(
+        SERVICE_CAST_MAP, CAST_MAP_SCHEMA, "async_cast_map"
+    )
 
 
 class FCastMediaPlayer(MediaPlayerEntity):
@@ -111,7 +182,6 @@ class FCastMediaPlayer(MediaPlayerEntity):
 
     _attr_has_entity_name = True
     _attr_name = None
-    _attr_supported_features = SUPPORTED_FEATURES
 
     def __init__(self, entry: FCastConfigEntry) -> None:
         self._client: FCastClient = entry.runtime_data
@@ -127,12 +197,21 @@ class FCastMediaPlayer(MediaPlayerEntity):
         self._last_position_stamp = 0.0
         self._pre_mute_volume: float | None = None
         self._auto_stop_unsub = None
+        # live-map state
+        self._map_unsub = None
+        self._map_track: list[str] = []
+        self._map_zoom = 15
+        self._map_title: str | None = None
+        self._map_trail: dict[str, deque] = {}
+        # playlist state
+        self._playlist_count = 0
+        self._playlist_index = 0
 
     async def async_added_to_hass(self) -> None:
         self.async_on_remove(self._client.add_listener(self._on_client_update))
 
     async def async_will_remove_from_hass(self) -> None:
-        self._cancel_auto_stop()
+        self._cancel_active()
 
     def _on_client_update(self) -> None:
         state = self._client.state
@@ -141,9 +220,20 @@ class FCastMediaPlayer(MediaPlayerEntity):
             self._position_updated_at = dt_util.utcnow()
         if state.playback is PlaybackState.IDLE:
             self._media_title = None
+            self._playlist_count = 0
         self.async_write_ha_state()
 
     # ------------------------------------------------------------- state
+
+    @property
+    def supported_features(self) -> MediaPlayerEntityFeature:
+        features = SUPPORTED_FEATURES
+        if self._playlist_count > 1:
+            features |= (
+                MediaPlayerEntityFeature.NEXT_TRACK
+                | MediaPlayerEntityFeature.PREVIOUS_TRACK
+            )
+        return features
 
     @property
     def available(self) -> bool:
@@ -204,11 +294,27 @@ class FCastMediaPlayer(MediaPlayerEntity):
         await self._client.pause()
 
     async def async_media_stop(self) -> None:
-        self._cancel_auto_stop()
+        self._cancel_active()
         await self._client.stop_media()
 
     async def async_media_seek(self, position: float) -> None:
         await self._client.seek(position)
+
+    async def async_media_next_track(self) -> None:
+        await self._jump_playlist(self._playlist_index + 1)
+
+    async def async_media_previous_track(self) -> None:
+        await self._jump_playlist(self._playlist_index - 1)
+
+    async def _jump_playlist(self, index: int) -> None:
+        if self._playlist_count <= 0:
+            return
+        index = max(0, min(index, self._playlist_count - 1))
+        try:
+            await self._client.set_playlist_item(index)
+        except FCastNotConnected as err:
+            raise HomeAssistantError(str(err)) from err
+        self._playlist_index = index
 
     async def async_set_volume_level(self, volume: float) -> None:
         self._pre_mute_volume = None
@@ -252,7 +358,7 @@ class FCastMediaPlayer(MediaPlayerEntity):
         url = async_process_play_media_url(self.hass, media_id)
         container = self._resolve_container(media_type, url)
 
-        self._cancel_auto_stop()
+        self._cancel_active()
         try:
             await self._client.play(
                 container,
@@ -279,12 +385,81 @@ class FCastMediaPlayer(MediaPlayerEntity):
         if guessed:
             return guessed
         if path.endswith((".m3u8", ".m3u")):
-            return "application/vnd.apple.mpegurl"
+            return HLS_CONTAINER
         if path.endswith(".mpd"):
             return "application/dash+xml"
         return TYPE_CONTAINERS.get(media_type, "video/mp4")  # type: ignore[arg-type]
 
     # ----------------------------------------------------------- services
+
+    async def async_cast_url(
+        self,
+        url: str,
+        container: str | None = None,
+        title: str | None = None,
+        position: float | None = None,
+        volume: float | None = None,
+        speed: float | None = None,
+        duration: int = 0,
+    ) -> None:
+        """Cast an arbitrary URL the receiver can fetch directly."""
+        container = container or self._resolve_container(None, url)
+        self._cancel_active()
+        try:
+            await self._client.play(
+                container,
+                url=url,
+                position=position,
+                volume=volume,
+                speed=speed,
+                title=title,
+            )
+        except FCastNotConnected as err:
+            raise HomeAssistantError(str(err)) from err
+        self._media_title = title or urlparse(url).path.rsplit("/", 1)[-1] or url
+        self._schedule_auto_stop(duration)
+        self.async_write_ha_state()
+
+    async def async_cast_playlist(
+        self,
+        items: list[Any],
+        start_index: int = 0,
+        title: str | None = None,
+        volume: float | None = None,
+        duration: int = 0,
+    ) -> None:
+        """Cast a playlist; the receiver advances through the items itself."""
+        media_items: list[dict[str, Any]] = []
+        for raw in items:
+            entry = {"url": raw} if isinstance(raw, str) else dict(raw)
+            url = entry.get("url")
+            if not url:
+                raise ServiceValidationError("Each playlist item needs a 'url'")
+            item: dict[str, Any] = {
+                "container": entry.get("container") or self._resolve_container(None, url),
+                "url": url,
+            }
+            if entry.get("title"):
+                item["metadata"] = {"type": 0, "title": entry["title"]}
+            if entry.get("position") is not None:
+                item["time"] = entry["position"]
+            media_items.append(item)
+
+        if not media_items:
+            raise ServiceValidationError("Playlist is empty")
+
+        self._cancel_active()
+        try:
+            await self._client.play_playlist(
+                media_items, offset=start_index, volume=volume, title=title
+            )
+        except FCastNotConnected as err:
+            raise HomeAssistantError(str(err)) from err
+        self._playlist_count = len(media_items)
+        self._playlist_index = min(start_index, len(media_items) - 1)
+        self._media_title = title or "Playlist"
+        self._schedule_auto_stop(duration)
+        self.async_write_ha_state()
 
     async def async_send_message(
         self,
@@ -313,21 +488,28 @@ class FCastMediaPlayer(MediaPlayerEntity):
         self.async_write_ha_state()
 
     async def async_cast_camera(
-        self, camera_entity: str, duration: int = 0
+        self, camera_entity: str, stream: bool = False, duration: int = 0
     ) -> None:
-        """Cast a still snapshot from a camera entity."""
+        """Cast a camera: a still snapshot, or a live HLS stream."""
         if not camera_entity.startswith("camera."):
             raise ServiceValidationError(
                 f"{camera_entity} is not a camera entity"
             )
+        cam_state = self.hass.states.get(camera_entity)
+        friendly = (
+            cam_state.attributes.get("friendly_name")
+            if cam_state
+            else camera_entity
+        )
+
+        if stream:
+            await self._cast_camera_stream(camera_entity, friendly, duration)
+            return
+
         # Deferred: importing the camera component pulls heavy optional deps
         from homeassistant.components.camera import async_get_image
 
         image = await async_get_image(self.hass, camera_entity)
-        state = self.hass.states.get(camera_entity)
-        friendly = (
-            state.attributes.get("friendly_name") if state else camera_entity
-        )
         await self._cast_bytes(
             image.content,
             image.content_type or "image/jpeg",
@@ -337,20 +519,133 @@ class FCastMediaPlayer(MediaPlayerEntity):
         self._media_title = friendly
         self.async_write_ha_state()
 
-    async def _cast_bytes(
-        self, data: bytes, content_type: str, title: str | None, duration: int
+    async def _cast_camera_stream(
+        self, camera_entity: str, friendly: str, duration: int
     ) -> None:
+        """Start an HLS stream for the camera and cast its playlist URL."""
+        from homeassistant.components.camera import async_request_stream
+
+        try:
+            path = await async_request_stream(self.hass, camera_entity, fmt="hls")
+        except HomeAssistantError as err:
+            raise HomeAssistantError(
+                f"{camera_entity} can't be streamed: {err}"
+            ) from err
+        base = get_url(self.hass, prefer_external=False, allow_cloud=False)
+        self._cancel_active()
+        try:
+            await self._client.play(HLS_CONTAINER, url=f"{base}{path}", title=friendly)
+        except FCastNotConnected as err:
+            raise HomeAssistantError(str(err)) from err
+        self._media_title = friendly
+        self._schedule_auto_stop(duration)
+        self.async_write_ha_state()
+
+    # -------------------------------------------------------------- live map
+
+    async def async_cast_map(
+        self,
+        track: list[str],
+        zoom: int = 15,
+        refresh_interval: int = 15,
+        duration: int = 300,
+        title: str | None = None,
+    ) -> None:
+        """Cast a live map of one or more entities, refreshing on an interval."""
+        self._cancel_active()
+        self._map_track = list(track)
+        self._map_zoom = zoom
+        self._map_title = title
+        self._map_trail = {ent: deque(maxlen=TRAIL_LENGTH) for ent in track}
+
+        await self._render_and_cast_map()
+
+        if refresh_interval:
+            self._map_unsub = async_track_time_interval(
+                self.hass, self._map_tick, timedelta(seconds=refresh_interval)
+            )
+        self._schedule_auto_stop(duration)
+
+    async def _map_tick(self, _now: datetime) -> None:
+        try:
+            await self._render_and_cast_map()
+        except (HomeAssistantError, FCastNotConnected) as err:
+            _LOGGER.warning("FCast map refresh failed: %s", err)
+
+    async def _render_and_cast_map(self) -> None:
+        markers: list[tuple[float, float, str]] = []
+        center: tuple[float, float] | None = None
+        for ent in self._map_track:
+            latlon = self._entity_latlon(ent)
+            if latlon is None:
+                continue
+            ent_state = self.hass.states.get(ent)
+            name = (
+                ent_state.attributes.get("friendly_name", ent)
+                if ent_state
+                else ent
+            )
+            markers.append((latlon[0], latlon[1], name))
+            if center is None:
+                center = latlon
+            trail = self._map_trail.get(ent)
+            if trail is not None and (not trail or trail[-1] != latlon):
+                trail.append(latlon)
+
+        if center is None:
+            raise HomeAssistantError(
+                "No location available for the tracked entities"
+            )
+
+        head = self._map_track[0] if self._map_track else None
+        trail_points = list(self._map_trail.get(head, [])) if head else []
+        label = markers[0][2]
+        png = await render_location_map(
+            self.hass,
+            center,
+            markers,
+            self._map_zoom,
+            title=self._map_title,
+            trail=trail_points,
+        )
+        await self._store_and_play(png, "image/png", self._map_title or label)
+        self._media_title = self._map_title or f"{label} location"
+        self.async_write_ha_state()
+
+    def _entity_latlon(self, entity_id: str) -> tuple[float, float] | None:
+        """Read latitude/longitude attributes from a tracked entity."""
+        state = self.hass.states.get(entity_id)
+        if state is None:
+            return None
+        lat = state.attributes.get("latitude")
+        lon = state.attributes.get("longitude")
+        if lat is None or lon is None:
+            return None
+        try:
+            return float(lat), float(lon)
+        except (TypeError, ValueError):
+            return None
+
+    # ------------------------------------------------------ serve & lifecycle
+
+    async def _store_and_play(
+        self, data: bytes, content_type: str, title: str | None
+    ) -> None:
+        """Stash bytes under a fresh token and tell the receiver to play it."""
         store = self.hass.data[DOMAIN][DATA_STORE]
         token = store.add(data, content_type)
         url = build_serve_url(self.hass, token)
-        self._cancel_auto_stop()
         try:
             await self._client.play(content_type, url=url, title=title)
         except FCastNotConnected as err:
             raise HomeAssistantError(str(err)) from err
-        self._schedule_auto_stop(duration)
 
-    # ---------------------------------------------------------- auto-stop
+    async def _cast_bytes(
+        self, data: bytes, content_type: str, title: str | None, duration: int
+    ) -> None:
+        self._cancel_active()
+        await self._store_and_play(data, content_type, title)
+        self._schedule_auto_stop(duration)
 
     def _schedule_auto_stop(self, duration: int | None) -> None:
         self._cancel_auto_stop()
@@ -364,8 +659,20 @@ class FCastMediaPlayer(MediaPlayerEntity):
             self._auto_stop_unsub()
             self._auto_stop_unsub = None
 
+    def _cancel_map(self) -> None:
+        if self._map_unsub is not None:
+            self._map_unsub()
+            self._map_unsub = None
+        self._map_track = []
+
+    def _cancel_active(self) -> None:
+        """Stop any auto-stop timer and any running live-map refresh."""
+        self._cancel_auto_stop()
+        self._cancel_map()
+
     async def _auto_stop(self, _now: datetime) -> None:
         self._auto_stop_unsub = None
+        self._cancel_map()
         try:
             await self._client.stop_media()
         except FCastNotConnected:

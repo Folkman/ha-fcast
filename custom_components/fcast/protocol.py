@@ -290,7 +290,7 @@ class FCastClient:
                     {
                         "displayName": self.sender_name,
                         "appName": "ha-fcast",
-                        "appVersion": "0.1.0",
+                        "appVersion": "0.2.0",
                     },
                 )
             self._handshake.set()
@@ -358,6 +358,51 @@ class FCastClient:
         self.state.last_error = None
         await self._send(Opcode.PLAY, message)
         self._last_play = (url, content)
+
+    async def play_playlist(
+        self,
+        items: list[dict[str, Any]],
+        offset: int = 0,
+        volume: float | None = None,
+        speed: float | None = None,
+        title: str | None = None,
+        forward_cache: int | None = None,
+        backward_cache: int | None = None,
+    ) -> None:
+        """Send a v3 PlaylistContent so the receiver advances items itself.
+
+        Each item is a MediaItem dict (``container`` plus ``url``/``content``,
+        optionally ``time``/``volume``/``speed``/``metadata``). The whole
+        playlist is JSON-encoded into the ``content`` field of an
+        ``application/json`` Play message.
+        """
+        playlist: dict[str, Any] = {
+            "contentType": 0,  # ContentType.Playlist
+            "items": items,
+            "offset": max(0, offset),
+        }
+        if volume is not None:
+            playlist["volume"] = volume
+        if speed is not None:
+            playlist["speed"] = speed
+        if forward_cache is not None:
+            playlist["forwardCache"] = forward_cache
+        if backward_cache is not None:
+            playlist["backwardCache"] = backward_cache
+        if title:
+            playlist["metadata"] = {"type": 0, "title": title}
+        content = json.dumps(playlist)
+        self.state.last_error = None
+        await self._send(
+            Opcode.PLAY, {"container": "application/json", "content": content}
+        )
+        # Track by content so a later single-URL Play is never mistaken for a
+        # replay of this playlist.
+        self._last_play = (None, content)
+
+    async def set_playlist_item(self, index: int) -> None:
+        """Jump to a playlist item by zero-based index (v3)."""
+        await self._send(Opcode.SET_PLAYLIST_ITEM, {"itemIndex": max(0, index)})
 
     async def pause(self) -> None:
         await self._send(Opcode.PAUSE)

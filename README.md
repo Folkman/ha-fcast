@@ -1,6 +1,6 @@
 # FCast for Home Assistant
 
-Cast anything from Home Assistant to [FCast](https://fcast.org) receivers — the open, DRM-free casting protocol from FUTO (used by Grayjay). Every receiver becomes a full `media_player` entity with volume, seek, position tracking, and HA's media browser, plus two services you'll actually use daily: styled **on-screen announcements** and **camera-snapshot casting**.
+Cast anything from Home Assistant to [FCast](https://fcast.org) receivers — the open, DRM-free casting protocol from FUTO (used by Grayjay). Every receiver becomes a full `media_player` entity with volume, seek, position tracking, and HA's media browser, plus services you'll actually use daily: styled **on-screen announcements**, **camera snapshots and live streams**, **arbitrary URLs**, **playlists**, and a refreshing **live location map**.
 
 ## Features
 
@@ -9,7 +9,10 @@ Cast anything from Home Assistant to [FCast](https://fcast.org) receivers — th
 - **Cast from the media browser** — any video, audio, or image from your HA media library, straight from the entity's UI
 - **TTS announcements** — target the entity with any `tts.speak` action and your speakers/TV talk
 - **`fcast.send_message`** — renders a styled announcement card (title, message, colors, optional waving-cat mascot 🐱) and shows it on screen for a chosen duration
-- **`fcast.cast_camera`** — throws a camera snapshot onto the TV; perfect for doorbell automations
+- **`fcast.cast_url`** — cast any media URL the receiver can fetch (video, audio, image, or an HLS/DASH live stream), with optional start position, volume, speed, and auto-dismiss
+- **`fcast.cast_playlist`** — hand the receiver a list of items and it advances through them itself; the entity gains next/previous-track controls
+- **`fcast.cast_camera`** — throw a camera snapshot onto the TV, or set `stream: true` for a continuous live HLS feed; perfect for doorbell automations
+- **`fcast.cast_map`** — show a live OpenStreetMap of any person/tracker/zone and refresh it on an interval (with a breadcrumb trail) — e.g. put "Dad is heading home" on the kitchen screen during the commute
 - **Multi-receiver broadcast** — services accept multiple targets; cast to every screen in the house at once
 
 ## Installation
@@ -74,6 +77,64 @@ data:
     duration: 600
 ```
 
+Cast an arbitrary URL or live stream:
+
+```yaml
+action: fcast.cast_url
+target:
+  entity_id: media_player.living_room_tv
+data:
+  url: https://example.com/live/stream.m3u8
+  title: Front gate
+```
+
+Live camera feed (HLS) on the TV:
+
+```yaml
+action: fcast.cast_camera
+target:
+  entity_id: media_player.living_room_tv
+data:
+  camera_entity: camera.front_door
+  stream: true
+  duration: 120
+```
+
+Queue up a playlist (the receiver advances on its own; next/previous work):
+
+```yaml
+action: fcast.cast_playlist
+target:
+  entity_id: media_player.living_room_tv
+data:
+  title: Road trip
+  items:
+    - https://example.com/a.mp4
+    - url: https://example.com/b.mp4
+      title: Second clip
+```
+
+"Dad is heading home" — a live map on the kitchen screen that follows a person
+and refreshes every 20 seconds for the length of the commute:
+
+```yaml
+triggers:
+  - trigger: zone
+    entity_id: person.dad
+    zone: zone.work
+    event: leave
+actions:
+  - action: fcast.cast_map
+    target:
+      entity_id: media_player.kitchen_display
+    data:
+      track: person.dad
+      title: Dad is heading home
+      zoom: 13
+      refresh_interval: 20
+      duration: 3600
+```
+
 TTS announcement:
 
 ```yaml
@@ -111,8 +172,43 @@ Quirk handled for you: receivers ignore a `Play` for the URL they already have l
 
 | Field | Default | Description |
 |---|---|---|
-| `camera_entity` | *(required)* | Camera to snapshot |
+| `camera_entity` | *(required)* | Camera to cast |
+| `stream` | `false` | `true` casts a continuous live HLS stream instead of a single snapshot |
 | `duration` | `0` | Seconds before clearing (`0` = until stopped) |
+
+### `fcast.cast_url`
+
+| Field | Default | Description |
+|---|---|---|
+| `url` | *(required)* | Media URL the receiver fetches directly |
+| `container` | *(guessed)* | MIME type; inferred from the URL when omitted |
+| `title` | – | Title shown on the receiver |
+| `position` | – | Seconds to start playback from |
+| `volume` | – | Playback volume, `0`–`1` |
+| `speed` | – | Playback speed multiplier |
+| `duration` | `0` | Seconds before auto-stop (`0` = play to the end) |
+
+### `fcast.cast_playlist`
+
+| Field | Default | Description |
+|---|---|---|
+| `items` | *(required)* | List of URL strings, or mappings with `url` / `container` / `title` / `position` |
+| `start_index` | `0` | Zero-based index of the item to start on |
+| `title` | – | Playlist title |
+| `volume` | – | Playback volume, `0`–`1` |
+| `duration` | `0` | Seconds before auto-stop (`0` = play to the end) |
+
+### `fcast.cast_map`
+
+| Field | Default | Description |
+|---|---|---|
+| `track` | *(required)* | One or more person / device_tracker / zone entities; the map centers on the first |
+| `zoom` | `15` | Map zoom level (`1` world … `19` street) |
+| `refresh_interval` | `15` | Seconds between map refreshes (`0` renders once) |
+| `duration` | `300` | Seconds to keep the map up (`0` = until stopped) |
+| `title` | – | Heading across the top of the map |
+
+Maps are rendered from [OpenStreetMap](https://www.openstreetmap.org/copyright) tiles. The integration sends a descriptive User-Agent and caches tiles in memory; please be mindful of OSM's tile usage policy for very aggressive refresh intervals.
 
 ## Development
 

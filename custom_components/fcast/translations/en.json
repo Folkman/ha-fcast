@@ -63,16 +63,106 @@
       }
     },
     "cast_camera": {
-      "name": "Cast camera snapshot",
-      "description": "Takes a snapshot from a camera and shows it on the receiver.",
+      "name": "Cast camera",
+      "description": "Shows a camera on the receiver, as a still snapshot or a live stream.",
       "fields": {
         "camera_entity": {
           "name": "Camera",
-          "description": "The camera entity to snapshot."
+          "description": "The camera entity to cast."
+        },
+        "stream": {
+          "name": "Live stream",
+          "description": "Cast a continuous live HLS stream instead of a single snapshot."
         },
         "duration": {
           "name": "Duration",
-          "description": "Seconds to show the snapshot before clearing it (0 keeps it until stopped)."
+          "description": "Seconds to show the camera before clearing it (0 keeps it until stopped)."
+        }
+      }
+    },
+    "cast_url": {
+      "name": "Cast URL",
+      "description": "Casts any media URL the receiver can fetch directly.",
+      "fields": {
+        "url": {
+          "name": "URL",
+          "description": "The media URL to play (video, audio, image, HLS/DASH stream)."
+        },
+        "container": {
+          "name": "Container",
+          "description": "MIME type of the media. Leave blank to guess from the URL."
+        },
+        "title": {
+          "name": "Title",
+          "description": "Title to show on the receiver."
+        },
+        "position": {
+          "name": "Start position",
+          "description": "Seconds to start playback from."
+        },
+        "volume": {
+          "name": "Volume",
+          "description": "Playback volume from 0 to 1."
+        },
+        "speed": {
+          "name": "Speed",
+          "description": "Playback speed multiplier."
+        },
+        "duration": {
+          "name": "Duration",
+          "description": "Seconds before automatically stopping (0 plays to the end)."
+        }
+      }
+    },
+    "cast_playlist": {
+      "name": "Cast playlist",
+      "description": "Casts a list of media items; the receiver advances through them itself.",
+      "fields": {
+        "items": {
+          "name": "Items",
+          "description": "List of URLs, or mappings with url/container/title/position."
+        },
+        "start_index": {
+          "name": "Start index",
+          "description": "Zero-based index of the item to start on."
+        },
+        "title": {
+          "name": "Title",
+          "description": "Title for the playlist."
+        },
+        "volume": {
+          "name": "Volume",
+          "description": "Playback volume from 0 to 1."
+        },
+        "duration": {
+          "name": "Duration",
+          "description": "Seconds before automatically stopping (0 plays to the end)."
+        }
+      }
+    },
+    "cast_map": {
+      "name": "Cast live map",
+      "description": "Shows a live map of one or more entities' locations, refreshing on an interval.",
+      "fields": {
+        "track": {
+          "name": "Track entities",
+          "description": "Person, device tracker, or zone entities to plot. The map centers on the first."
+        },
+        "zoom": {
+          "name": "Zoom",
+          "description": "Map zoom level (1 world, 19 street)."
+        },
+        "refresh_interval": {
+          "name": "Refresh interval",
+          "description": "Seconds between map refreshes (0 renders once)."
+        },
+        "duration": {
+          "name": "Duration",
+          "description": "Seconds to keep the map up before clearing it (0 keeps it until stopped)."
+        },
+        "title": {
+          "name": "Title",
+          "description": "Heading shown across the top of the map."
         }
       }
     }

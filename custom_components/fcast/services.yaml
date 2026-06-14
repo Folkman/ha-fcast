@@ -50,6 +50,10 @@ cast_camera:
       selector:
         entity:
           domain: camera
+    stream:
+      default: false
+      selector:
+        boolean:
     duration:
       default: 0
       selector:
@@ -58,3 +62,132 @@ cast_camera:
           max: 3600
           unit_of_measurement: seconds
           mode: box
+
+cast_url:
+  target:
+    entity:
+      integration: fcast
+      domain: media_player
+  fields:
+    url:
+      required: true
+      example: "https://example.com/video.mp4"
+      selector:
+        text:
+    container:
+      example: "video/mp4"
+      selector:
+        text:
+    title:
+      example: "Live feed"
+      selector:
+        text:
+    position:
+      selector:
+        number:
+          min: 0
+          max: 86400
+          unit_of_measurement: seconds
+          mode: box
+    volume:
+      selector:
+        number:
+          min: 0
+          max: 1
+          step: 0.05
+          mode: slider
+    speed:
+      selector:
+        number:
+          min: 0.25
+          max: 4
+          step: 0.25
+          mode: box
+    duration:
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 86400
+          unit_of_measurement: seconds
+          mode: box
+
+cast_playlist:
+  target:
+    entity:
+      integration: fcast
+      domain: media_player
+  fields:
+    items:
+      required: true
+      example: |
+        - https://example.com/a.mp4
+        - url: https://example.com/b.mp4
+          title: Second clip
+      selector:
+        object:
+    start_index:
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 1000
+          mode: box
+    title:
+      example: "Road trip"
+      selector:
+        text:
+    volume:
+      selector:
+        number:
+          min: 0
+          max: 1
+          step: 0.05
+          mode: slider
+    duration:
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 86400
+          unit_of_measurement: seconds
+          mode: box
+
+cast_map:
+  target:
+    entity:
+      integration: fcast
+      domain: media_player
+  fields:
+    track:
+      required: true
+      selector:
+        entity:
+          multiple: true
+    zoom:
+      default: 15
+      selector:
+        number:
+          min: 1
+          max: 19
+          mode: slider
+    refresh_interval:
+      default: 15
+      selector:
+        number:
+          min: 0
+          max: 3600
+          unit_of_measurement: seconds
+          mode: box
+    duration:
+      default: 300
+      selector:
+        number:
+          min: 0
+          max: 86400
+          unit_of_measurement: seconds
+          mode: box
+    title:
+      example: "Dad is heading home"
+      selector:
+        text:

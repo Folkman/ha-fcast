@@ -20,9 +20,12 @@ proper UI for media selection, volume, and display duration.
 ```
 config_flow.py    zeroconf (_fcast._tcp) + manual host  → config entry
 __init__.py       entry → FCastClient (runtime_data), registers serve view
-protocol.py       HA-free asyncio FCast client (v1-v3)
-media_player.py   entity + send_message / cast_camera entity services
+protocol.py       HA-free asyncio FCast client (v1-v3), incl. v3 playlists
+media_player.py   entity + send_message / cast_camera / cast_url /
+                  cast_playlist / cast_map entity services
 message_card.py   HA-free Pillow renderer for announcement cards
+map_card.py       HA-free Web-Mercator tile math + Pillow map compositor
+map_cast.py       async OSM tile fetch (cached) → render_location_map()
 serve.py          in-memory token store + unauthenticated HomeAssistantView
 ```
 
@@ -53,8 +56,38 @@ serve.py          in-memory token store + unauthenticated HomeAssistantView
 - `PlaybackError` from the receiver is logged and exposed as the `last_error`
   entity attribute.
 
-## Out of scope for v0.1 (roadmap)
+## Casting services (v0.2)
 
-- Playlists (v3 `PlaylistContent`), receiver event subscriptions
-- Live camera streams via HLS (snapshot casting ships now)
+Five entity services layer over the player; all reuse the same Play path and
+the token serving where bytes are generated.
+
+- **`cast_url`** — play any receiver-reachable URL. Container is taken as given
+  or guessed from the path (`.m3u8` → HLS, `.mpd` → DASH, else `mimetypes`).
+- **`cast_playlist`** — a v3 `PlaylistContent` (`contentType: 0`) JSON-encoded
+  into the `content` of an `application/json` Play, so the *receiver* advances
+  items itself. Items may be bare URL strings or mappings
+  (`url`/`container`/`title`/`position`). With more than one item the entity
+  advertises `NEXT_TRACK`/`PREVIOUS_TRACK`, implemented with
+  `SET_PLAYLIST_ITEM` against a locally tracked index.
+- **`cast_camera` (`stream: true`)** — requests an HLS stream from HA's `stream`
+  component (`async_request_stream(..., fmt="hls")`), makes the relative path
+  absolute via the internal URL, and casts it as
+  `application/vnd.apple.mpegurl`. `stream: false` keeps the v0.1 snapshot path.
+- **`cast_map`** — renders a slippy map of one or more tracked entities
+  (person/device_tracker/zone latitude+longitude) and re-casts it every
+  `refresh_interval` seconds for `duration`. The map is built from cached
+  OpenStreetMap raster tiles (Web-Mercator math in `map_card`, async fetch in
+  `map_cast`) composited with Pillow: a labelled pin per entity, a breadcrumb
+  trail for the centre entity, a title banner, and OSM attribution. Each
+  refresh serves a **fresh token** so the receiver — which ignores a Play whose
+  URL matches loaded media — actually re-fetches the updated frame.
+
+The live-map design deliberately avoids any keyed static-map API: OSM raster
+tiles need only a descriptive User-Agent, tiles are cached in memory so a
+refresh that doesn't move the viewport fetches nothing, and rendering stays a
+pure, offline-testable function fed by the bytes.
+
+## Out of scope (roadmap)
+
+- Receiver event subscriptions (`SUBSCRIBE_EVENT`)
 - HACS default-store submission + home-assistant/brands PR

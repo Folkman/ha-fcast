@@ -1,6 +1,9 @@
 {
   "services": {
     "send_message": "mdi:message-text-fast",
-    "cast_camera": "mdi:cctv"
+    "cast_camera": "mdi:cctv",
+    "cast_url": "mdi:link-variant",
+    "cast_playlist": "mdi:playlist-play",
+    "cast_map": "mdi:map-marker-radius"
   }
 }

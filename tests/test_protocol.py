@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 
 import pytest
 
@@ -111,4 +112,33 @@ async def test_oversized_packet_rejected(fake_receiver) -> None:
     client = await make_client(fake_receiver)
     with pytest.raises(FCastError):
         await client.play("video/mp4", content="x" * 40_000)
+    await client.stop()
+
+
+async def test_play_playlist(fake_receiver) -> None:
+    client = await make_client(fake_receiver)
+    await client.play_playlist(
+        [
+            {"container": "video/mp4", "url": "http://x/a.mp4"},
+            {"container": "audio/mpeg", "url": "http://x/b.mp3"},
+        ],
+        offset=1,
+        volume=0.5,
+        title="Mix",
+    )
+    _, body = await fake_receiver.wait_for(Opcode.PLAY)
+    assert body["container"] == "application/json"
+    content = json.loads(body["content"])
+    assert content["contentType"] == 0
+    assert content["offset"] == 1
+    assert content["volume"] == 0.5
+    assert content["metadata"]["title"] == "Mix"
+    assert [item["url"] for item in content["items"]] == [
+        "http://x/a.mp4",
+        "http://x/b.mp3",
+    ]
+
+    await client.set_playlist_item(1)
+    _, body = await fake_receiver.wait_for(Opcode.SET_PLAYLIST_ITEM)
+    assert body == {"itemIndex": 1}
     await client.stop()

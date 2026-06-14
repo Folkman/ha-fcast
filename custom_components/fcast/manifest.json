@@ -4,12 +4,12 @@
   "codeowners": ["@Folkman"],
   "config_flow": true,
   "dependencies": ["http", "media_source"],
-  "after_dependencies": ["camera"],
+  "after_dependencies": ["camera", "stream"],
   "documentation": "https://github.com/Folkman/ha-fcast",
   "integration_type": "device",
   "iot_class": "local_push",
   "issue_tracker": "https://github.com/Folkman/ha-fcast/issues",
   "requirements": [],
-  "version": "0.1.0",
+  "version": "0.2.0",
   "zeroconf": [{ "type": "_fcast._tcp.local." }]
 }
