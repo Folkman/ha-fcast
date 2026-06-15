@@ -8,7 +8,7 @@ Cast anything from Home Assistant to [FCast](https://fcast.org) receivers — th
 - **Full media player entity** — play / pause / stop / seek / volume / mute, live position and state pushed by the receiver (`local_push`, no polling)
 - **Cast from the media browser** — any video, audio, or image from your HA media library, straight from the entity's UI
 - **TTS announcements** — target the entity with any `tts.speak` action and your speakers/TV talk
-- **`fcast.send_message`** — renders a styled announcement card (title, message, colors, optional waving-cat mascot 🐱) and shows it on screen for a chosen duration
+- **`fcast.send_message`** — renders a styled announcement card (title, message with color emoji, colors, optional waving-cat mascot 🐱) and shows it on screen for a chosen duration
 - **`fcast.cast_url`** — cast any media URL the receiver can fetch (video, audio, image, or an HLS/DASH live stream), with optional start position, volume, speed, and auto-dismiss; set `refresh_interval` to turn a per-request image endpoint (e.g. a photo kiosk) into a self-advancing slideshow
 - **`fcast.cast_playlist`** — hand the receiver a list of items and it advances through them itself; the entity gains next/previous-track controls
 - **`fcast.cast_camera`** — throw a camera snapshot onto the TV, or set `stream: true` for a continuous live HLS feed; perfect for doorbell automations
@@ -209,7 +209,7 @@ Quirk handled for you: receivers ignore a `Play` for the URL they already have l
 
 | Field | Default | Description |
 |---|---|---|
-| `message` | *(required)* | Text to display (wraps and auto-sizes) |
+| `message` | *(required)* | Text to display (wraps and auto-sizes; color emoji 🚗💨 supported) |
 | `title` | – | Small heading above the message |
 | `duration` | `20` | Seconds before the card clears (`0` = until stopped) |
 | `background` | `#1c2240` | Card background (hex) |
@@ -275,4 +275,4 @@ FCast is a project of FUTO. This is an independent community integration, not af
 
 ## License
 
-MIT — bundled Lato fonts under SIL OFL 1.1.
+MIT — bundled Lato and Noto Color Emoji fonts under SIL OFL 1.1.
