@@ -19,9 +19,13 @@ Cast anything from Home Assistant to [FCast](https://fcast.org) receivers — th
 
 ### HACS (recommended)
 
-1. HACS → ⋮ → *Custom repositories* → add `https://github.com/Folkman/ha-fcast` as type *Integration*
-2. Install **FCast**, restart Home Assistant
+FCast is in the default [HACS](https://hacs.xyz) store — no custom repository needed.
+
+1. Open **HACS**, search for **FCast**, and click *Download*
+2. Restart Home Assistant
 3. Your receivers appear under *Settings → Devices & Services* as discovered devices — click *Configure*
+
+> If it doesn't turn up in search yet, HACS refreshes its store data periodically — restart Home Assistant (or the HACS integration) to force a refresh. You can also add `https://github.com/Folkman/ha-fcast` via HACS → ⋮ → *Custom repositories* (type *Integration*) as a fallback.
 
 ### Manual
 
