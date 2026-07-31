@@ -2,6 +2,8 @@
 
 Cast anything from Home Assistant to [FCast](https://fcast.org) receivers — the open, DRM-free casting protocol from FUTO (used by Grayjay). Every receiver becomes a full `media_player` entity with volume, seek, position tracking, and HA's media browser, plus services you'll actually use daily: styled **on-screen announcements**, **camera snapshots and live streams**, **arbitrary URLs**, **playlists**, and a refreshing **live location map**.
 
+> **Trademark notice:** FCast is a project of FUTO. This is an independent community integration, not affiliated with or endorsed by FUTO. See FUTO's [trademark policy](https://fcast.org).
+
 ## Features
 
 - **Auto-discovery** — receivers on your network (`_fcast._tcp` mDNS) appear in Settings → Devices & Services automatically; manual host entry also supported
@@ -272,10 +274,6 @@ uv pip install -p .venv pytest-homeassistant-custom-component pillow
 .venv/bin/python -m pytest tests/            # unit tests (fake receiver)
 .venv/bin/python scripts/live_smoke.py HOST FILE.mp4   # against a real receiver
 ```
-
-## Trademark notice
-
-FCast is a project of FUTO. This is an independent community integration, not affiliated with or endorsed by FUTO. See FUTO's [trademark policy](https://fcast.org).
 
 ## License
 
