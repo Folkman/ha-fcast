@@ -696,7 +696,7 @@ class FCastMediaPlayer(MediaPlayerEntity):
         self,
         track: list[str],
         zoom: int = 15,
-        refresh_interval: int = 15,
+        refresh_interval: int = 30,
         duration: int = 300,
         title: str | None = None,
     ) -> None:

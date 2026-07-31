@@ -184,7 +184,7 @@ cast_map:
           max: 19
           mode: slider
     refresh_interval:
-      default: 15
+      default: 30
       selector:
         number:
           min: 0

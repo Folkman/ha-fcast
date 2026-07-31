@@ -254,7 +254,7 @@ Quirk handled for you: receivers ignore a `Play` for the URL they already have l
 |---|---|---|
 | `track` | *(required)* | One or more person / device_tracker / zone entities; the map centers on the first |
 | `zoom` | `15` | Map zoom level (`1` world … `19` street) |
-| `refresh_interval` | `15` | Seconds between map refreshes (`0` renders once) |
+| `refresh_interval` | `30` | Seconds between map refreshes (`0` renders once) |
 | `duration` | `300` | Seconds to keep the map up (`0` = until stopped) |
 | `title` | – | Heading across the top of the map |
 
